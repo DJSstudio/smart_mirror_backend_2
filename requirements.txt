@@ -1,0 +1,9 @@
+Django>=4.2
+djangorestframework>=3.14
+PyJWT>=2.8
+cryptography>=40.0
+python-dotenv>=1.0
+#pysqlcipher3
+django-cors-headers
+# For SQLCipher, later:
+# pysqlcipher3 (or python-sqlcipher) - optional; system-level dependency

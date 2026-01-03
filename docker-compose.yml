@@ -1,0 +1,37 @@
+
+version: "3.9"
+
+services:
+  smartmirror:
+    build: .
+    container_name: smartmirror_backend
+    restart: always
+
+    ports:
+      - "8000:8000"
+
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DEBUG: ${DEBUG}
+      HOSTNAME: ${HOSTNAME}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS}
+
+      MEDIA_ROOT: /app/media
+      DB_NAME: /app/db/smart_mirror.db
+
+      TRANSFER_PRIVATE_KEY_PATH: /app/keys/private.pem
+      TRANSFER_PUBLIC_KEY_PATH: /app/keys/public.pem
+      TRANSFER_ALG: RS256
+      TRANSFER_EXP: 120
+
+    volumes:
+      - ./media:/app/media
+      - ./db:/app/db
+      - ./keys:/app/keys
+      - ./logs:/app/logs
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/peer/sessions"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
