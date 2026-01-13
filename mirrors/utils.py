@@ -42,6 +42,22 @@ def validate_export_token(token: str) -> dict:
         algorithms=["HS256"],
     )
 
+def get_public_base_url(request=None):
+    base = getattr(settings, "PUBLIC_BASE_URL", "") or ""
+    if base:
+        return base.rstrip("/")
+
+    if request is None:
+        return None
+
+    scheme = "https" if request.is_secure() else "http"
+    forwarded_proto = request.META.get("HTTP_X_FORWARDED_PROTO")
+    if forwarded_proto:
+        scheme = forwarded_proto.split(",")[0].strip()
+
+    host = request.get_host()
+    return f"{scheme}://{host}"
+
 def generate_video_thumbnail(video_path, output_path):
     subprocess.run([
         "ffmpeg",
@@ -51,3 +67,25 @@ def generate_video_thumbnail(video_path, output_path):
         "-vframes", "1",
         output_path
     ], check=True)
+
+def get_video_duration_seconds(video_path):
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                video_path,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except Exception:
+        return None
+
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return None

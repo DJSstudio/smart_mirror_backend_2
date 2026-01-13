@@ -22,7 +22,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
-    "mirrors",
+    "mirrors.apps.MirrorsConfig",
 ]
 
 # Middleware
@@ -97,10 +97,30 @@ TRANSFER_TOKEN = {
 
 # Local mirror identity
 HOSTNAME = os.getenv("HOSTNAME", "local-mirror")
+MIRROR_ID = os.getenv("MIRROR_ID", HOSTNAME)
+
+# App/network discovery
+APP_PORT = int(os.getenv("APP_PORT", os.getenv("PORT", "8000")))
+DISCOVERY_ENABLED = os.getenv("DISCOVERY_ENABLED", "1").lower() in ("1", "true", "yes")
+DISCOVERY_ANNOUNCE_PORT = int(
+    os.getenv("PEER_DISCOVERY_PORT", os.getenv("DISCOVERY_ANNOUNCE_PORT", "5005"))
+)
+DISCOVERY_INTERVAL_SECONDS = int(os.getenv("DISCOVERY_INTERVAL_SECONDS", "10"))
+DISCOVERY_IP = os.getenv("DISCOVERY_IP", "").strip()
+DISCOVERY_USE_HOSTNAME = os.getenv("DISCOVERY_USE_HOSTNAME", "0").lower() in ("1", "true", "yes")
+DISCOVERY_HOSTNAME = os.getenv("DISCOVERY_HOSTNAME", "").strip()
+DISCOVERY_HOSTNAME_SUFFIX = os.getenv("DISCOVERY_HOSTNAME_SUFFIX", "").strip()
 
 # Logging Level
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-DEVICE_IP = os.getenv("DEVICE_IP", "192.168.1.8:8000")
+DEVICE_IP = os.getenv("DEVICE_IP", "192.168.1.5:8000")
+
+# Optional public base URL for QR/export/media links (e.g. http://mirror.local:8000)
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+
+# Respect proxy headers when running behind a reverse proxy.
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

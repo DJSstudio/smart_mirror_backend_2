@@ -19,7 +19,14 @@ from .serializers import (
     MirrorSerializer,
 )
 from .tokens import generate_transfer_token, validate_transfer_token
-from .utils import generate_qr_token, generate_export_token, validate_export_token, generate_video_thumbnail
+from .utils import (
+    generate_qr_token,
+    generate_export_token,
+    validate_export_token,
+    generate_video_thumbnail,
+    get_video_duration_seconds,
+    get_public_base_url,
+)
 
 
 
@@ -92,11 +99,11 @@ class QRSessionCreateView(APIView):
         print("DEBUG: QR raw token:", raw_token)
         print("DEBUG: QR hashed token:", hashed)
 
-        # host = request.get_host()
-        host = settings.DEVICE_IP  
-        scheme = "https" if request.is_secure() else "http"
-        # qr_url = f"{scheme}://{host}/api/session/qr/activate?token={raw_token}"
-        qr_url = f"{scheme}://{host}/api/qr/activate?token={raw_token}"
+        base_url = get_public_base_url(request)
+        if not base_url:
+            base_url = f"http://{settings.DEVICE_IP}"
+
+        qr_url = f"{base_url}/api/qr/activate?token={raw_token}"
 
         print("DEBUG: Generated QR URL =", qr_url)
 
@@ -117,6 +124,7 @@ class QRSessionCreateView(APIView):
             "session_id": str(session.id),
             "qr_url": qr_url,
             "qr_status": session.status,
+            "qr_token": raw_token,  # Include raw token for reactivation
         }
         print("DEBUG: Returning JSON:", response_data)
 
@@ -136,6 +144,8 @@ class QRSessionActivateView(APIView):
         if not raw_token or not device_id:
             return Response({"detail": "Missing token or device_id"}, status=400)
 
+        print(f"🔐 QR Activation: token={raw_token[:20]}... device_id={device_id}")
+
         hashed = hashlib.sha256(raw_token.encode()).hexdigest()
         
         # Re-attach existing session
@@ -144,6 +154,7 @@ class QRSessionActivateView(APIView):
         ).order_by("-started_at").first()
 
         if existing:
+            print(f"✅ Found existing session {existing.id} for device {device_id}")
             existing.status = Session.STATUS_ACTIVE
             existing.activated_at = timezone.now()
             existing.save(update_fields=["status", "activated_at"])
@@ -162,6 +173,7 @@ class QRSessionActivateView(APIView):
         except Session.DoesNotExist:
             return Response({"detail": "Invalid or expired QR"}, status=400)
 
+        print(f"✅ Activating new session {session.id} with device_id={device_id}")
         session.mark_active(device_id=device_id)
 
         return Response({
@@ -221,13 +233,70 @@ class QRActivationHTMLView(APIView):
     permission_classes = [permissions.AllowAny]
     def get(self, request):
         token = request.query_params.get("token")
+        device_id = request.query_params.get("device_id")
 
-        if token:
-            request.GET._mutable = True
-            request.GET["device_id"] = request.headers.get("User-Agent", "browser")
+        if not token:
+            return HttpResponse("Invalid QR")
+
+        # If device_id is provided (e.g., from Flutter app), handle it as JSON API
+        if device_id:
             return QRSessionActivateView().get(request)
 
-        return HttpResponse("Invalid QR")
+        # If no device_id, serve HTML page for browser to use localStorage
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Smart Mirror — Connect</title>
+            <style>body{{font-family:Arial;text-align:center;padding:40px;}}</style>
+        </head>
+        <body>
+            <h2>Connect to Smart Mirror</h2>
+            <p>Completing connection…</p>
+            <div id="status">Connecting...</div>
+            <script>
+                (async function() {{
+                    try {{
+                        let key = 'mirror_device_id';
+                        let device_id = localStorage.getItem(key);
+                        if (!device_id) {{
+                            if (window.crypto && crypto.randomUUID) {{
+                                device_id = crypto.randomUUID();
+                            }} else {{
+                                device_id = 'web-' + Math.random().toString(36).slice(2, 10);
+                            }}
+                            localStorage.setItem(key, device_id);
+                        }}
+
+                        const resp = await fetch('/api/qr/activate?token={token}&device_id=' + encodeURIComponent(device_id));
+                        const statusEl = document.getElementById('status');
+                        if (!resp.ok) {{
+                            const body = await resp.json().catch(() => ({{}}));
+                            statusEl.innerText = 'Activation failed: ' + (body.detail || resp.status);
+                            return;
+                        }}
+                        const data = await resp.json();
+                        statusEl.innerText = 'Connected ✓';
+                    }} catch (e) {{
+                        document.getElementById('status').innerText = 'Error: ' + e;
+                    }}
+                }})();
+            </script>
+        </body>
+        </html>
+        """
+
+        return HttpResponse(html)
+
+    def _get_client_ip(self, request):
+        """Get the client's IP address from the request"""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR', 'unknown')
+        return ip
 
 
 
@@ -344,6 +413,9 @@ class VideoUploadView(APIView):
             sha = hashlib.sha256(f.read()).hexdigest()
 
         video.sha256 = sha
+        duration_seconds = get_video_duration_seconds(video.file.path)
+        if duration_seconds is not None:
+            video.duration_seconds = duration_seconds
         video.save()
 
         return Response(VideoSerializer(video).data, status=201)
@@ -362,6 +434,13 @@ class VideoListView(APIView):
             videos = Video.objects.filter(session__id=session_id)
         else:
             videos = Video.objects.all()
+
+        # Best-effort backfill for missing durations.
+        for video in videos.filter(duration_seconds__isnull=True):
+            duration_seconds = get_video_duration_seconds(video.file.path)
+            if duration_seconds is not None:
+                video.duration_seconds = duration_seconds
+                video.save(update_fields=["duration_seconds"])
 
         return Response(
             VideoSerializer(
@@ -579,6 +658,11 @@ class StopRecordingView(APIView):
             size_bytes=file.size
         )
 
+        duration_seconds = get_video_duration_seconds(video.file.path)
+        if duration_seconds is not None:
+            video.duration_seconds = duration_seconds
+            video.save(update_fields=["duration_seconds"])
+
         # 2️⃣ Generate thumbnail (best effort)
         try:
             video_path = Path(video.file.path)
@@ -625,10 +709,10 @@ class ExportTokenView(APIView):
 
     def post(self, request):
         session_id = request.data.get("session_id")
-        # device_id = request.query_params.get("device_id")
+
         if not session_id:
             return Response(
-                {"detail": "session_id and device_id required"},
+                {"detail": "session_id required"},
                 status=400
             )
 
@@ -640,24 +724,19 @@ class ExportTokenView(APIView):
         if not session.device_id:
             return Response({"detail": "Session not bound to device"}, status=403)
 
-        # 🔒 CRITICAL CHECK — device ownership
-        # if session.device_id != device_id:
-        #     return Response(
-        #         {"detail": "Different device used to start the session"},
-        #         status=403
-        #     )
-
+        # Generate export token tied to the device that activated the session
         token = generate_export_token(
             session_id=str(session.id),
             device_id=session.device_id,
         )
 
-        export_url = f"http://{request.get_host()}/api/export?token={token}"
+        base_url = get_public_base_url(request)
+        if not base_url:
+            base_url = f"http://{request.get_host()}"
+        export_url = f"{base_url}/api/export?token={token}"
+        print(f"✅ Export token generated for session {session.id} with device_id={session.device_id}")
 
-        return Response(
-            {"export_url": export_url},
-            status=status.HTTP_200_OK,
-        )
+        return Response({"export_url": export_url}, status=status.HTTP_200_OK)
 
 class ExportDownloadView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -669,14 +748,19 @@ class ExportDownloadView(APIView):
 
         try:
             payload = validate_export_token(token)
-        except Exception:
+            print(f"🔐 Export Download: token validated. session_id={payload['session_id']}, device_id={payload['device_id']}")
+        except Exception as e:
+            print(f"❌ Export Download: token validation failed: {e}")
             return HttpResponseForbidden("Invalid or expired token")
 
         session = get_object_or_404(Session, pk=payload["session_id"])
 
         # 🔒 TOKEN ↔ SESSION
         if session.device_id != payload["device_id"]:
+            print(f"❌ Device mismatch! Session device_id={session.device_id}, Token device_id={payload['device_id']}")
             return HttpResponseForbidden("Device mismatch")
+
+        print(f"✅ Device match confirmed. Proceeding with export for session {session.id}")
 
         # 🔒 ONE-TIME USE
         # if session.export_used:
@@ -724,5 +808,3 @@ class ExportDownloadView(APIView):
         html += "</div></body></html>"
 
         return HttpResponse(html)
-
-
