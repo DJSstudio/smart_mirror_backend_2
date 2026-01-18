@@ -9,6 +9,8 @@ from .views import (
     PeerSessionsView,
     TransferSessionRequestView,
     TransferSessionCompleteView,
+    TransferSessionSnapshotView,
+    TransferSessionFinalizeView,
     QRSessionCreateView,
     QRSessionActivateView,
     QRActivationHTMLView,
@@ -36,6 +38,8 @@ urlpatterns = [
 
     path("transfer_session_request", TransferSessionRequestView.as_view(), name="transfer_request"),
     path("transfer_session_complete", TransferSessionCompleteView.as_view(), name="transfer_complete"),
+    path("transfer_session_snapshot", TransferSessionSnapshotView.as_view(), name="transfer_snapshot"),
+    path("transfer_session_finalize", TransferSessionFinalizeView.as_view(), name="transfer_finalize"),
 
     path("record/start", StartRecordingView.as_view()),
     path("record/stop", StopRecordingView.as_view()),

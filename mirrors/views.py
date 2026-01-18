@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
 from django.shortcuts import get_object_or_404
+from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
 from django.conf import settings
@@ -47,7 +48,32 @@ def get_local_mirror():
     else:
         print("DEBUG: Using existing Mirror entry:", mirror)
 
+    mirror_id = getattr(settings, "MIRROR_ID", "") or hostname
+    metadata = mirror.metadata or {}
+    if metadata.get("mirror_id") != mirror_id:
+        metadata["mirror_id"] = mirror_id
+        mirror.metadata = metadata
+        mirror.save(update_fields=["metadata"])
+
     return mirror
+
+
+def resolve_mirror_by_identity(identity: str) -> Mirror | None:
+    if not identity:
+        return None
+
+    mirror = Mirror.objects.filter(metadata__mirror_id=identity).first()
+    if mirror:
+        return mirror
+
+    mirror = Mirror.objects.filter(hostname=identity).first()
+    if mirror:
+        return mirror
+
+    try:
+        return Mirror.objects.get(pk=identity)
+    except Mirror.DoesNotExist:
+        return None
 
 
 
@@ -507,10 +533,13 @@ class TransferSessionRequestView(APIView):
         if session.mirror != local:
             return Response({"detail": "Not owner"}, status=403)
 
-        to_mirror = get_object_or_404(Mirror, pk=to_mirror_id)
+        to_mirror = resolve_mirror_by_identity(to_mirror_id)
+        if to_mirror is None:
+            return Response({"detail": "Unknown target mirror"}, status=404)
 
         exp = settings.TRANSFER_TOKEN.get("EXP_SECONDS", 120)
-        token = generate_transfer_token(session_id, local.id, to_mirror_id, exp)
+        from_identity = getattr(settings, "MIRROR_ID", local.hostname)
+        token = generate_transfer_token(session_id, from_identity, to_mirror_id, exp)
 
         transfer = TransferRequest.objects.create(
             session=session,
@@ -521,6 +550,35 @@ class TransferSessionRequestView(APIView):
         )
 
         return Response({"token": token, "expires_at": transfer.expires_at}, status=201)
+
+
+# -------------------------------------------
+#  SESSION SNAPSHOT (SOURCE MIRROR)
+# -------------------------------------------
+class TransferSessionSnapshotView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        session_id = request.query_params.get("session_id")
+        if not session_id:
+            return Response({"detail": "session_id required"}, status=400)
+
+        session = get_object_or_404(Session, pk=session_id)
+        local = get_local_mirror()
+
+        if session.mirror != local:
+            return Response({"detail": "Not owner"}, status=403)
+
+        videos = Video.objects.filter(session=session)
+
+        return Response(
+            {
+                "session": SessionSerializer(session).data,
+                "videos": VideoSerializer(
+                    videos, many=True, context={"request": request}
+                ).data,
+            }
+        )
 
 
 # -------------------------------------------
@@ -546,41 +604,92 @@ class TransferSessionCompleteView(APIView):
 
         local = get_local_mirror()
 
-        if str(local.id) != str(to_mirror_id):
+        local_identity = getattr(settings, "MIRROR_ID", local.hostname)
+        if str(local_identity) != str(to_mirror_id):
             return Response({"detail": "Token not for this mirror"}, status=403)
 
-        # Create new session & metadata
         session_meta = request.data.get("session_metadata", {})
-        new_session = Session.objects.create(
-            id=session_id, owner=local, user_meta=session_meta
+        device_id = session_meta.get("device_id")
+
+        session, created = Session.objects.get_or_create(
+            id=session_id,
+            defaults={
+                "mirror": local,
+                "status": Session.STATUS_ACTIVE,
+                "device_id": device_id,
+            },
         )
 
-        # Create placeholder video rows (files transferred separately)
-        for v in request.data.get("video_metadata", []):
-            Video.objects.create(
-                session=new_session,
-                size_bytes=v.get("size_bytes"),
-                duration_seconds=v.get("duration_seconds"),
-                codec=v.get("codec", "h264"),
-                sha256=v.get("sha256", ""),
-                encrypted=v.get("encrypted", True),
-                metadata=v.get("metadata", {}),
-            )
+        if not created and session.mirror != local:
+            return Response({"detail": "Session owned by another mirror"}, status=403)
 
-        # Mark transfer completed
+        updates = []
+        if session.status != Session.STATUS_ACTIVE:
+            session.status = Session.STATUS_ACTIVE
+            updates.append("status")
+        if session.activated_at is None:
+            session.activated_at = timezone.now()
+            updates.append("activated_at")
+        if session.ended_at is not None:
+            session.ended_at = None
+            updates.append("ended_at")
+        if device_id and session.device_id != device_id:
+            session.device_id = device_id
+            updates.append("device_id")
+
+        if updates:
+            session.save(update_fields=updates)
+
+        return Response(
+            {"detail": "transfer ready", "session_id": session_id},
+            status=201 if created else 200,
+        )
+
+
+# -------------------------------------------
+#  SESSION TRANSFER FINALIZE (source deletes)
+# -------------------------------------------
+class TransferSessionFinalizeView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        token = request.data.get("token")
+        if not token:
+            return Response({"detail": "token required"}, status=400)
+
         try:
-            tr = TransferRequest.objects.get(
-                session__id=session_id,
-                from_mirror__id=from_mirror_id,
-                to_mirror=local,
-            )
-            tr.completed = True
-            tr.completed_at = timezone.now()
-            tr.save()
-        except TransferRequest.DoesNotExist:
-            pass
+            payload = validate_transfer_token(token)
+        except Exception as e:
+            return Response({"detail": f"Invalid token: {str(e)}"}, status=400)
 
-        return Response({"detail": "transfer completed", "session_id": session_id}, status=201)
+        session_id = payload["sub"]
+        to_mirror_id = payload["to"]
+        from_mirror_id = payload["from"]
+
+        local = get_local_mirror()
+        local_identity = getattr(settings, "MIRROR_ID", local.hostname)
+        if str(local_identity) != str(from_mirror_id):
+            return Response({"detail": "Token not for this mirror"}, status=403)
+
+        TransferRequest.objects.filter(
+            session__id=session_id,
+            from_mirror=local,
+        ).filter(
+            Q(to_mirror__metadata__mirror_id=to_mirror_id)
+            | Q(to_mirror__hostname=to_mirror_id)
+            | Q(to_mirror__id=to_mirror_id)
+        ).update(completed=True, completed_at=timezone.now())
+
+        session = get_object_or_404(Session, pk=session_id, mirror=local)
+
+        for video in session.videos.all():
+            if video.file:
+                video.file.delete(save=False)
+            if video.thumbnail:
+                video.thumbnail.delete(save=False)
+        session.delete()
+
+        return Response({"detail": "transfer finalized", "session_id": session_id}, status=200)
 
 
 class VideoDeleteView(APIView):
