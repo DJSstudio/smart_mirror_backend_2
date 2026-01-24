@@ -40,7 +40,9 @@ class VideoSerializer(serializers.ModelSerializer):
             return f"{base_url}{obj.file.url}"
 
         from django.conf import settings
-        return f"http://{settings.DEVICE_IP}{obj.file.url}"
+        if settings.DEVICE_IP:
+            return f"http://{settings.DEVICE_IP}{obj.file.url}"
+        return obj.file.url
 
     def get_thumbnail_url(self, obj):
         if not obj.thumbnail:
@@ -52,7 +54,9 @@ class VideoSerializer(serializers.ModelSerializer):
             return f"{base_url}{obj.thumbnail.url}"
 
         from django.conf import settings
-        return f"http://{settings.DEVICE_IP}{obj.thumbnail.url}"
+        if settings.DEVICE_IP:
+            return f"http://{settings.DEVICE_IP}{obj.thumbnail.url}"
+        return obj.thumbnail.url
 
 
 

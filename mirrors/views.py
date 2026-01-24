@@ -126,7 +126,7 @@ class QRSessionCreateView(APIView):
         print("DEBUG: QR hashed token:", hashed)
 
         base_url = get_public_base_url(request)
-        if not base_url:
+        if not base_url and settings.DEVICE_IP:
             base_url = f"http://{settings.DEVICE_IP}"
 
         qr_url = f"{base_url}/api/qr/activate?token={raw_token}"

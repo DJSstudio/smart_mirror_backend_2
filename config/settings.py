@@ -116,7 +116,8 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-DEVICE_IP = os.getenv("DEVICE_IP", "192.168.1.5:8000")
+# Optional legacy fallback for host:port (avoid hardcoded defaults).
+DEVICE_IP = os.getenv("DEVICE_IP", "").strip()
 
 # Optional public base URL for QR/export/media links (e.g. http://mirror.local:8000)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
