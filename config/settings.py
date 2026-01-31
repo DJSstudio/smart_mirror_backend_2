@@ -107,9 +107,9 @@ DISCOVERY_ANNOUNCE_PORT = int(
 )
 DISCOVERY_INTERVAL_SECONDS = int(os.getenv("DISCOVERY_INTERVAL_SECONDS", "10"))
 DISCOVERY_IP = os.getenv("DISCOVERY_IP", "").strip()
-DISCOVERY_USE_HOSTNAME = os.getenv("DISCOVERY_USE_HOSTNAME", "0").lower() in ("1", "true", "yes")
+DISCOVERY_USE_HOSTNAME = os.getenv("DISCOVERY_USE_HOSTNAME", "1").lower() in ("1", "true", "yes")
 DISCOVERY_HOSTNAME = os.getenv("DISCOVERY_HOSTNAME", "").strip()
-DISCOVERY_HOSTNAME_SUFFIX = os.getenv("DISCOVERY_HOSTNAME_SUFFIX", "").strip()
+DISCOVERY_HOSTNAME_SUFFIX = os.getenv("DISCOVERY_HOSTNAME_SUFFIX", ".local").strip()
 
 # Logging Level
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

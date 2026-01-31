@@ -23,9 +23,9 @@ PEER_DISCOVERY_PORT=5005
 DISCOVERY_ENABLED=1
 DISCOVERY_IP=
 DISCOVERY_INTERVAL_SECONDS=10
-DISCOVERY_USE_HOSTNAME=0
+DISCOVERY_USE_HOSTNAME=1
 DISCOVERY_HOSTNAME=
-DISCOVERY_HOSTNAME_SUFFIX=
+DISCOVERY_HOSTNAME_SUFFIX=.local
 
 LOG_LEVEL=INFO
 """
@@ -33,16 +33,27 @@ LOG_LEVEL=INFO
 class Command(BaseCommand):
     help = "Generate .env file for Smart Mirror backend"
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Overwrite existing .env if it already exists.",
+        )
+
     def handle(self, *args, **kwargs):
+        force = kwargs.get("force", False)
         secret_key = secrets.token_hex(32)
 
         env_contents = ENV_TEMPLATE.format(secret=secret_key)
 
-        if os.path.exists(".env"):
+        if os.path.exists(".env") and not force:
             self.stdout.write(self.style.WARNING(".env already exists! Not overwriting."))
             return
 
         with open(".env", "w") as f:
             f.write(env_contents)
 
-        self.stdout.write(self.style.SUCCESS("✔ .env file created successfully!"))
+        if force:
+            self.stdout.write(self.style.SUCCESS("✔ .env file overwritten successfully!"))
+        else:
+            self.stdout.write(self.style.SUCCESS("✔ .env file created successfully!"))
