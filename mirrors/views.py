@@ -284,8 +284,8 @@ class QRActivationHTMLView(APIView):
         if not token:
             return HttpResponse("Invalid QR")
 
-        # If device_id is provided (e.g., from Flutter app), handle it as JSON API
-        if device_id:
+        # If device_id/user_id is provided (e.g., from Flutter app), handle it as JSON API
+        if device_id or user_id:
             return QRSessionActivateView().get(request)
 
         # If no device_id, serve HTML page for browser to use localStorage
@@ -318,7 +318,7 @@ class QRActivationHTMLView(APIView):
                         }}
                         localStorage.setItem(key, user_id);
 
-                        const resp = await fetch('/api/qr/activate?token={token}&user_id=' + encodeURIComponent(user_id));
+                        const resp = await fetch('/api/session/qr/activate?token={token}&user_id=' + encodeURIComponent(user_id));
                         const statusEl = document.getElementById('status');
                         const text = await resp.text();
                         let data = null;
