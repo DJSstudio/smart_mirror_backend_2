@@ -185,27 +185,56 @@ class QRSessionActivateView(APIView):
 
         local = get_local_mirror()
         
-        # Re-attach existing session
-        existing = Session.objects.filter(
+        # Prefer resuming the most recent local session for this user.
+        existing_local = Session.objects.filter(
+            user_id=user_id,
+            mirror=local,
+        ).exclude(
+            status=Session.STATUS_PENDING
+        ).order_by(
+            "-activated_at",
+            "-started_at"
+        ).first()
+
+        if existing_local:
+            print(
+                f"✅ Resuming local session {existing_local.id} for user {user_id}"
+            )
+            existing_local.status = Session.STATUS_ACTIVE
+            existing_local.activated_at = timezone.now()
+            existing_local.ended_at = None
+            if device_id:
+                existing_local.device_id = device_id
+            existing_local.save(
+                update_fields=["status", "activated_at", "ended_at", "device_id"]
+            )
+
+            # End the newly created pending session tied to this token (if any).
+            pending = Session.objects.filter(
+                qr_token_hash=hashed,
+                status=Session.STATUS_PENDING,
+            ).exclude(id=existing_local.id).first()
+            if pending:
+                pending.status = Session.STATUS_ENDED
+                pending.ended_at = timezone.now()
+                pending.save(update_fields=["status", "ended_at"])
+
+            return Response({
+                "session_id": str(existing_local.id),
+                "status": "active",
+                "type": "resumed"
+            })
+
+        # If there is an active session for this user on another mirror,
+        # activate a new local session (transfer will follow).
+        existing_remote = Session.objects.filter(
             user_id=user_id,
             status=Session.STATUS_ACTIVE,
-        ).order_by("-started_at").first()
-
-        if existing:
-            if existing.mirror == local:
-                print(f"✅ Found existing local session {existing.id} for user {user_id}")
-                existing.status = Session.STATUS_ACTIVE
-                existing.activated_at = timezone.now()
-                existing.save(update_fields=["status", "activated_at"])
-
-                return Response({
-                    "session_id": str(existing.id),
-                    "status": "active",
-                    "type": "resumed"
-                })
+        ).exclude(mirror=local).order_by("-activated_at").first()
+        if existing_remote:
             print(
                 f"ℹ️ Active session for user {user_id} is on another mirror "
-                f"({existing.mirror.hostname}); activating new session here."
+                f"({existing_remote.mirror.hostname}); activating new session here."
             )
 
         try:
