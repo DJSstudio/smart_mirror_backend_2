@@ -146,7 +146,8 @@ def _update_peer_from_payload(payload: dict, fallback_ip: str) -> None:
 def _build_payload() -> dict:
     ip = _get_advertised_ip() or "0.0.0.0"
     port = _get_backend_port()
-    base_url = _get_base_url(ip, port)
+    base_url = _get_api_base_url(ip, port)
+    public_base_url = _get_public_base_url(ip, port)
     return {
         "type": "announce",
         "mirror_id": getattr(settings, "MIRROR_ID", settings.HOSTNAME),
@@ -154,11 +155,24 @@ def _build_payload() -> dict:
         "ip": ip,
         "port": port,
         "base_url": base_url,
+        "public_base_url": public_base_url or base_url,
         "timestamp": int(time.time()),
     }
 
 
-def _get_base_url(ip: str, port: int) -> str:
+def _get_api_base_url(ip: str, port: int) -> str:
+    host, _ = _parse_host_port(settings.PUBLIC_BASE_URL)
+    if host and _is_ip(host):
+        return _normalize_base_url(settings.PUBLIC_BASE_URL)
+
+    host, _ = _parse_host_port(settings.DEVICE_IP)
+    if host and _is_ip(host):
+        return _normalize_base_url(settings.DEVICE_IP)
+
+    return _normalize_base_url(f"http://{ip}:{port}")
+
+
+def _get_public_base_url(ip: str, port: int) -> str | None:
     base = settings.PUBLIC_BASE_URL
     if base:
         return _normalize_base_url(base)
@@ -167,7 +181,7 @@ def _get_base_url(ip: str, port: int) -> str:
     if host_base:
         return _normalize_base_url(f"http://{host_base}:{port}")
 
-    return _normalize_base_url(f"http://{ip}:{port}")
+    return None
 
 
 def _get_hostname_base() -> str | None:
