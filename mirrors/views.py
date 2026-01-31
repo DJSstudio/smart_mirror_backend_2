@@ -182,23 +182,31 @@ class QRSessionActivateView(APIView):
         )
 
         hashed = hashlib.sha256(raw_token.encode()).hexdigest()
+
+        local = get_local_mirror()
         
         # Re-attach existing session
         existing = Session.objects.filter(
-            user_id=user_id
+            user_id=user_id,
+            status=Session.STATUS_ACTIVE,
         ).order_by("-started_at").first()
 
         if existing:
-            print(f"✅ Found existing session {existing.id} for user {user_id}")
-            existing.status = Session.STATUS_ACTIVE
-            existing.activated_at = timezone.now()
-            existing.save(update_fields=["status", "activated_at"])
+            if existing.mirror == local:
+                print(f"✅ Found existing local session {existing.id} for user {user_id}")
+                existing.status = Session.STATUS_ACTIVE
+                existing.activated_at = timezone.now()
+                existing.save(update_fields=["status", "activated_at"])
 
-            return Response({
-                "session_id": str(existing.id),
-                "status": "active",
-                "type": "resumed"
-            })
+                return Response({
+                    "session_id": str(existing.id),
+                    "status": "active",
+                    "type": "resumed"
+                })
+            print(
+                f"ℹ️ Active session for user {user_id} is on another mirror "
+                f"({existing.mirror.hostname}); activating new session here."
+            )
 
         try:
             session = Session.objects.get(
