@@ -69,6 +69,7 @@ class Session(models.Model):
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
 
     device_id = models.CharField(max_length=128, null=True, blank=True)
+    user_id = models.CharField(max_length=128, null=True, blank=True)
     export_used = models.BooleanField(default=False)
 
     class Meta:
@@ -78,13 +79,24 @@ class Session(models.Model):
     def is_active(self):
         return self.status == self.STATUS_ACTIVE
 
-    def mark_active(self, device_id: str | None = None):
+    def mark_active(
+        self,
+        device_id: str | None = None,
+        user_id: str | None = None,
+    ):
         self.status = self.STATUS_ACTIVE
         self.activated_at = timezone.now()
         # self.is_active = True
         if device_id:
             self.device_id = device_id
-        self.save(update_fields=["status", "activated_at", "device_id"])
+        if user_id:
+            self.user_id = user_id
+        updates = ["status", "activated_at"]
+        if device_id:
+            updates.append("device_id")
+        if user_id:
+            updates.append("user_id")
+        self.save(update_fields=updates)
 
     def mark_ended(self):
         self.status = self.STATUS_ENDED

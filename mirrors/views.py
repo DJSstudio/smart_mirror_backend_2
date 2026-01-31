@@ -166,21 +166,30 @@ class QRSessionActivateView(APIView):
     def get(self, request):
         raw_token = request.query_params.get("token")
         device_id = request.query_params.get("device_id")
+        user_id = request.query_params.get("user_id")
 
-        if not raw_token or not device_id:
-            return Response({"detail": "Missing token or device_id"}, status=400)
+        if not raw_token or not (user_id or device_id):
+            return Response({"detail": "Missing token or user_id"}, status=400)
 
-        print(f"🔐 QR Activation: token={raw_token[:20]}... device_id={device_id}")
+        if not user_id:
+            user_id = device_id
+        if not device_id:
+            device_id = user_id
+
+        print(
+            f"🔐 QR Activation: token={raw_token[:20]}... "
+            f"user_id={user_id} device_id={device_id}"
+        )
 
         hashed = hashlib.sha256(raw_token.encode()).hexdigest()
         
         # Re-attach existing session
         existing = Session.objects.filter(
-            device_id=device_id
+            user_id=user_id
         ).order_by("-started_at").first()
 
         if existing:
-            print(f"✅ Found existing session {existing.id} for device {device_id}")
+            print(f"✅ Found existing session {existing.id} for user {user_id}")
             existing.status = Session.STATUS_ACTIVE
             existing.activated_at = timezone.now()
             existing.save(update_fields=["status", "activated_at"])
@@ -199,8 +208,11 @@ class QRSessionActivateView(APIView):
         except Session.DoesNotExist:
             return Response({"detail": "Invalid or expired QR"}, status=400)
 
-        print(f"✅ Activating new session {session.id} with device_id={device_id}")
-        session.mark_active(device_id=device_id)
+        print(
+            f"✅ Activating new session {session.id} "
+            f"with user_id={user_id} device_id={device_id}"
+        )
+        session.mark_active(device_id=device_id, user_id=user_id)
 
         return Response({
             "session_id": str(session.id),
@@ -284,18 +296,21 @@ class QRActivationHTMLView(APIView):
             <script>
                 (async function() {{
                     try {{
-                        let key = 'mirror_device_id';
-                        let device_id = localStorage.getItem(key);
-                        if (!device_id) {{
-                            if (window.crypto && crypto.randomUUID) {{
-                                device_id = crypto.randomUUID();
-                            }} else {{
-                                device_id = 'web-' + Math.random().toString(36).slice(2, 10);
-                            }}
-                            localStorage.setItem(key, device_id);
+                        let key = 'mirror_user_id';
+                        let user_id = localStorage.getItem(key);
+                        if (!user_id) {{
+                            user_id = localStorage.getItem('mirror_device_id');
                         }}
+                        if (!user_id) {{
+                            if (window.crypto && crypto.randomUUID) {{
+                                user_id = crypto.randomUUID();
+                            }} else {{
+                                user_id = 'web-' + Math.random().toString(36).slice(2, 10);
+                            }}
+                        }}
+                        localStorage.setItem(key, user_id);
 
-                        const resp = await fetch('/api/qr/activate?token={token}&device_id=' + encodeURIComponent(device_id));
+                        const resp = await fetch('/api/qr/activate?token={token}&user_id=' + encodeURIComponent(user_id));
                         const statusEl = document.getElementById('status');
                         if (!resp.ok) {{
                             const body = await resp.json().catch(() => ({{}}));
@@ -610,6 +625,9 @@ class TransferSessionCompleteView(APIView):
 
         session_meta = request.data.get("session_metadata", {})
         device_id = session_meta.get("device_id")
+        user_id = session_meta.get("user_id")
+        if not user_id:
+            user_id = device_id
 
         session, created = Session.objects.get_or_create(
             id=session_id,
@@ -617,6 +635,7 @@ class TransferSessionCompleteView(APIView):
                 "mirror": local,
                 "status": Session.STATUS_ACTIVE,
                 "device_id": device_id,
+                "user_id": user_id,
             },
         )
 
@@ -636,6 +655,9 @@ class TransferSessionCompleteView(APIView):
         if device_id and session.device_id != device_id:
             session.device_id = device_id
             updates.append("device_id")
+        if user_id and session.user_id != user_id:
+            session.user_id = user_id
+            updates.append("user_id")
 
         if updates:
             session.save(update_fields=updates)
