@@ -312,12 +312,18 @@ class QRActivationHTMLView(APIView):
 
                         const resp = await fetch('/api/qr/activate?token={token}&user_id=' + encodeURIComponent(user_id));
                         const statusEl = document.getElementById('status');
+                        const text = await resp.text();
+                        let data = null;
+                        try {{
+                            data = JSON.parse(text);
+                        }} catch (_) {{
+                            data = null;
+                        }}
                         if (!resp.ok) {{
-                            const body = await resp.json().catch(() => ({{}}));
-                            statusEl.innerText = 'Activation failed: ' + (body.detail || resp.status);
+                            const detail = data && data.detail ? data.detail : text || resp.status;
+                            statusEl.innerText = 'Activation failed: ' + detail;
                             return;
                         }}
-                        const data = await resp.json();
                         statusEl.innerText = 'Connected ✓';
                     }} catch (e) {{
                         document.getElementById('status').innerText = 'Error: ' + e;
