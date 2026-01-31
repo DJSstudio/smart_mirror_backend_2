@@ -96,7 +96,7 @@ TRANSFER_TOKEN = {
 }
 
 # Local mirror identity
-HOSTNAME = os.getenv("HOSTNAME", "local-mirror")
+HOSTNAME = os.getenv("HOSTNAME", "mirror-001")
 MIRROR_ID = os.getenv("MIRROR_ID", HOSTNAME)
 
 # App/network discovery
