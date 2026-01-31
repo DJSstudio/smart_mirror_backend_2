@@ -280,6 +280,7 @@ class QRActivationHTMLView(APIView):
     def get(self, request):
         token = request.query_params.get("token")
         device_id = request.query_params.get("device_id")
+        user_id = request.query_params.get("user_id")
 
         if not token:
             return HttpResponse("Invalid QR")
