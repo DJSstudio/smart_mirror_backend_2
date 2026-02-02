@@ -3,7 +3,6 @@ import secrets
 import hashlib
 import jwt
 from datetime import datetime, timedelta
-from typing import Optional
 from django.conf import settings
 import subprocess
 from pathlib import Path
@@ -46,82 +45,18 @@ def validate_export_token(token: str) -> dict:
 def get_public_base_url(request=None):
     base = getattr(settings, "PUBLIC_BASE_URL", "") or ""
     if base:
-        return _normalize_base_url(base)
-
-    hostname_override = _get_hostname_override()
-    if hostname_override:
-        scheme = _get_request_scheme(request)
-        host_port = _apply_port(hostname_override, _get_backend_port(request))
-        return f"{scheme}://{host_port}"
+        return base.rstrip("/")
 
     if request is None:
         return None
 
-    scheme = _get_request_scheme(request)
-    host = request.get_host()
-    return f"{scheme}://{host}"
-
-
-def _normalize_base_url(base: str) -> str:
-    trimmed = base.strip().rstrip("/")
-    if not trimmed:
-        return ""
-    if not trimmed.startswith("http://") and not trimmed.startswith("https://"):
-        trimmed = f"http://{trimmed}"
-    return trimmed
-
-
-def _get_request_scheme(request=None) -> str:
-    if request is None:
-        return "http"
     scheme = "https" if request.is_secure() else "http"
     forwarded_proto = request.META.get("HTTP_X_FORWARDED_PROTO")
     if forwarded_proto:
         scheme = forwarded_proto.split(",")[0].strip()
-    return scheme
 
-
-def _get_backend_port(request=None) -> Optional[int]:
-    port = getattr(settings, "APP_PORT", None)
-    if port:
-        try:
-            return int(port)
-        except (TypeError, ValueError):
-            return None
-    if request is None:
-        return None
-    try:
-        return int(request.get_port())
-    except (TypeError, ValueError):
-        return None
-
-
-def _apply_port(host: str, port: Optional[int]) -> str:
-    if not host or not port:
-        return host
-    if ":" in host:
-        return host
-    if port in (80, 443):
-        return host
-    return f"{host}:{port}"
-
-
-def _get_hostname_override() -> Optional[str]:
-    override = getattr(settings, "DISCOVERY_HOSTNAME", "").strip()
-    if override:
-        return override
-
-    if not getattr(settings, "DISCOVERY_USE_HOSTNAME", False):
-        return None
-
-    hostname = getattr(settings, "HOSTNAME", "").strip()
-    if not hostname:
-        return None
-
-    suffix = getattr(settings, "DISCOVERY_HOSTNAME_SUFFIX", "").strip()
-    if suffix and "." not in hostname:
-        return f"{hostname}{suffix}"
-    return hostname
+    host = request.get_host()
+    return f"{scheme}://{host}"
 
 def generate_video_thumbnail(video_path, output_path):
     subprocess.run([
