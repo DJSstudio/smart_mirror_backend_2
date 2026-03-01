@@ -921,6 +921,8 @@ class ExportDownloadView(APIView):
         if not token:
             return HttpResponseForbidden("Missing token")
 
+        device_id = request.GET.get("device_id") or ""
+
         try:
             payload = validate_export_token(token)
             print(f"🔐 Export Download: token validated. session_id={payload['session_id']}, device_id={payload['device_id']}")
@@ -930,9 +932,56 @@ class ExportDownloadView(APIView):
 
         session = get_object_or_404(Session, pk=payload["session_id"])
 
+        # Require device_id in request for same-device export.
+        if not device_id:
+            html = f"""
+            <html>
+            <head>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+              <style>
+                body {{ font-family: Arial; background: #111; color: #fff; display:flex; align-items:center; justify-content:center; min-height:100vh; }}
+                .card {{ max-width: 420px; padding: 24px; background:#1b1b1b; border-radius: 16px; text-align:center; }}
+                .muted {{ color:#aaa; font-size:14px; }}
+              </style>
+            </head>
+            <body>
+              <div class="card">
+                <h3>Verifying device…</h3>
+                <p class="muted">Please wait.</p>
+              </div>
+              <script>
+                (function() {{
+                  try {{
+                    var key = 'mirror_user_id';
+                    var legacyKey = 'mirror_device_id';
+                    var deviceId = localStorage.getItem(key) || localStorage.getItem(legacyKey);
+                    if (!deviceId) {{
+                      document.querySelector('.card').innerHTML =
+                        '<h3>Device not recognized</h3><p class="muted">Please open from the same device that started the session.</p>';
+                      return;
+                    }}
+                    var url = new URL(window.location.href);
+                    url.searchParams.set('device_id', deviceId);
+                    window.location.replace(url.toString());
+                  }} catch (e) {{
+                    document.querySelector('.card').innerHTML =
+                      '<h3>Unable to verify device</h3><p class="muted">Please try again on the original device.</p>';
+                  }}
+                }})();
+              </script>
+            </body>
+            </html>
+            """
+            return HttpResponse(html)
+
         # 🔒 TOKEN ↔ SESSION
         if session.device_id != payload["device_id"]:
             print(f"❌ Device mismatch! Session device_id={session.device_id}, Token device_id={payload['device_id']}")
+            return HttpResponseForbidden("Device mismatch")
+
+        # 🔒 REQUEST ↔ SESSION
+        if session.device_id != device_id:
+            print(f"❌ Request device mismatch! Session device_id={session.device_id}, request device_id={device_id}")
             return HttpResponseForbidden("Device mismatch")
 
         print(f"✅ Device match confirmed. Proceeding with export for session {session.id}")
