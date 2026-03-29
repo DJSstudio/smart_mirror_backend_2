@@ -17,7 +17,9 @@ services:
       ALLOWED_HOSTS: ${ALLOWED_HOSTS}
 
       MEDIA_ROOT: /app/media
+      STATIC_ROOT: /app/staticfiles
       DB_NAME: /app/db/smart_mirror.db
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
 
       TRANSFER_PRIVATE_KEY_PATH: /app/keys/private.pem
       TRANSFER_PUBLIC_KEY_PATH: /app/keys/public.pem
@@ -31,7 +33,7 @@ services:
       - ./logs:/app/logs
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/peer/sessions"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/peer/sessions', timeout=5)"]
       interval: 10s
       timeout: 5s
       retries: 3

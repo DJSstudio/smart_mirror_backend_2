@@ -27,8 +27,8 @@ INSTALLED_APPS = [
 
 # Middleware
 MIDDLEWARE = [
-    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "utils.cert_middleware.ClientCertMiddleware",
@@ -44,6 +44,7 @@ WHITENOISE_ALLOW_ALL_ORIGINS = True
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 
 ROOT_URLCONF = "config.urls"
@@ -71,12 +72,13 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db" / "smart_mirror.db",
+        "NAME": os.getenv("DB_NAME", str(BASE_DIR / "db" / "smart_mirror.db")),
     }
 }
 
 # Static & Media
 STATIC_URL = "/static/"
+STATIC_ROOT = os.getenv("STATIC_ROOT", str(BASE_DIR / "staticfiles"))
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.getenv("MEDIA_ROOT", BASE_DIR / "media")
 
